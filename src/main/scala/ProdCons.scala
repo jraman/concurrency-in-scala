@@ -6,20 +6,14 @@
  * First field has two single-space separated sub-fields.
  *
  * If the file does not conform (e.g. has no commas on a line),
- * then the process hangs.  When run with a single consumer thread,
- * and a file with 16 lines, the output is:
-    Done: Producer
-    t12 1 0       empty queue
-    t12 2 15      queue.get returns first item
-                  process hangs
-
+ * then an (uncaught) exception is thrown.
+ *
  * Created by jraman
  */
 
-import java.util.concurrent.{BlockingQueue, LinkedBlockingQueue}
+import java.util.concurrent.{BlockingQueue, LinkedBlockingQueue, Executors}
 import scala.io.Source
 import scala.collection.mutable
-import java.util.concurrent.Executors
 
 
 case class User(name: String, id: Int)
@@ -38,14 +32,19 @@ object Main extends App {
 
   val pool = Executors.newFixedThreadPool(cores)
 
-  // Submit one consumer per core.
   val index = new InvertedIndex()
-  for (i <- 0 until cores) {
-    pool.submit(new IndexerConsumer(index, queue))
-  }
 
+  // Submit one consumer per core.
+  // pool.submit returns a Future[_] with submit(r) or a Future[Int] with submit(r, i)
+  val futures = (0 until cores).map(x => pool.submit(new IndexerConsumer(index, queue)))
+
+  // Wait for the producer to get done.  Then wait for the queue to get empty.
   tp.join()
   while (!queue.isEmpty) {
+    println("Done Consumer? %s".format(futures.map(_.isDone)))
+    // Surface up any errors (e.g. scala.MatchError
+    // If an exception is thrown in a consumer, then isDone is true.
+    futures.foreach(f => if(f.isDone) f.get(1, scala.concurrent.duration.SECONDS))
     // print(queue.size + " ")
     Thread.sleep(500L)
   }
@@ -93,11 +92,8 @@ abstract class Consumer[T](queue: BlockingQueue[T]) extends Runnable {
   def run() {
     val id = "t" + Thread.currentThread.getId
     while (true) {
-      println(s"${id} 1 ${queue.size}")
       val item = queue.take()
-      println(s"${id} 2 ${queue.size}")
       consume(item)
-      println(s"${id} 3 ${queue.size}")
       Thread.sleep(20L)
     }
     println(s"${id}: Done: Consumer")
