@@ -11,8 +11,6 @@
     Done: Producer
     t12 1 0       empty queue
     t12 2 15      queue.get returns first item
-    t12 1 15      15 elements in queue
-    t12 2 14      queue.get returns second item
                   process hangs
 
  * Created by jraman
@@ -42,7 +40,7 @@ object Main extends App {
 
   // Submit one consumer per core.
   val index = new InvertedIndex()
-  for (i <- 0 to cores) {
+  for (i <- 0 until cores) {
     pool.submit(new IndexerConsumer(index, queue))
   }
 
